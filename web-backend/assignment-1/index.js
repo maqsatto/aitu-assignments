@@ -3,20 +3,16 @@ const app = express()
 
 const port = 3000
 
-// Middleware to read POST form data
 app.use(express.urlencoded({ extended: true }))
 
-// GET route – show form
 app.get('/', (req, res) => {
     res.sendFile(__dirname + '/index.html')
 })
 
-// POST route – calculate BMI
 app.post('/calculate-bmi', (req, res) => {
     const weight = Number(req.body.weight)
     const heightCm = Number(req.body.height)
 
-    // Validation
     if (weight <= 0 || heightCm <= 0) {
         return res.send('<h2>Invalid input. Weight and height must be positive.</h2><a href="/">Go back</a>')
     }
