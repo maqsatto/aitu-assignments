@@ -48,7 +48,7 @@ def newton(f, x0, df=None, tol=1e-10, max_iter=1000, h=1e-6):
     return x
 
 
-# Secant (needs two initial guesses)
+# Secant
 def secant(f, x0, x1, tol=1e-10, max_iter=1000):
     f0, f1 = f(x0), f(x1)
     for _ in range(max_iter):
@@ -93,7 +93,7 @@ def muller(f, x0, x1, x2, tol=1e-10, max_iter=1000):
         h1 = x1 - x0
         h2 = x2 - x1
         if h1 == 0 or h2 == 0:
-            raise ZeroDivisionError("Repeated x values in Muller.")
+            raise ZeroDivisionError("Repeated x values.")
 
         d1 = (f1 - f0) / h1
         d2 = (f2 - f1) / h2
@@ -105,13 +105,13 @@ def muller(f, x0, x1, x2, tol=1e-10, max_iter=1000):
 
         disc = b * b - 4 * a * c
         if disc < 0:
-            raise ValueError("Negative discriminant (complex root). math-only Muller can't proceed.")
+            raise ValueError("Negative discriminant.")
         sqrt_disc = math.sqrt(disc)
 
         # choose denominator to avoid cancellation
         denom = b + sqrt_disc if abs(b + sqrt_disc) > abs(b - sqrt_disc) else b - sqrt_disc
         if denom == 0:
-            raise ZeroDivisionError("Zero denominator in Muller.")
+            raise ZeroDivisionError("Zero denominator.")
 
         dx = -2 * c / denom
         x3 = x2 + dx
