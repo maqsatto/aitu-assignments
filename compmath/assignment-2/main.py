@@ -1,224 +1,132 @@
-import numpy as np
+EPS = 1e-10
+MAX_ITER = 1000
 
-EPS = 1e-12
+#Cramer’s Method
+def det(A):
+    n = len(A)
+    if n == 1:
+        return A[0][0]
 
-# -------------------------
-# Helpers
-# -------------------------
-def as_float_array(A, b):
-    A = np.array(A, dtype=float)
-    b = np.array(b, dtype=float).reshape(-1)
-    if A.ndim != 2 or b.ndim != 1 or A.shape[0] != A.shape[1] or A.shape[0] != b.size:
-        raise ValueError("Shapes must be: A is (n,n), b is (n,).")
-    return A, b
+    d = 0
+    for j in range(n):
+        minor = [row[:j] + row[j+1:] for row in A[1:]]
+        d += (-1)**j * A[0][j] * det(minor)
+    return d
 
-def residual_norm(A, x, b):
-    return np.linalg.norm(A @ x - b, ord=np.inf)
 
-# -------------------------
-# Direct methods
-# -------------------------
 def cramer(A, b):
-    """
-    Cramer's rule. O(n^4) with determinants, OK only for small n.
-    Requires det(A) != 0.
-    """
-    A, b = as_float_array(A, b)
-    n = A.shape[0]
-    detA = np.linalg.det(A)
-    if abs(detA) < EPS:
-        raise ValueError("det(A) is zero (or near zero). No unique solution for Cramer's method.")
-    x = np.zeros(n)
+    D = det(A)
+    if abs(D) < EPS:
+        raise ValueError("det(A) = 0")
+
+    n = len(b)
+    x = []
+
     for i in range(n):
-        Ai = A.copy()
-        Ai[:, i] = b
-        x[i] = np.linalg.det(Ai) / detA
+        Ai = [row[:] for row in A]
+        for j in range(n):
+            Ai[j][i] = b[j]
+        x.append(det(Ai) / D)
+
     return x
 
-def gaussian_elimination(A, b, pivot=True):
-    """
-    Gaussian elimination with (optional) partial pivoting.
-    Returns x for unique solution.
-    """
-    A, b = as_float_array(A, b)
-    n = A.shape[0]
-    M = np.hstack([A.copy(), b.reshape(-1, 1)])
+#Gaussian Method
+def gauss(A, b):
+    n = len(b)
+    A = [A[i] + [b[i]] for i in range(n)]
 
-    # Forward elimination
-    for k in range(n):
-        if pivot:
-            # partial pivoting
-            r = k + np.argmax(np.abs(M[k:, k]))
-            if abs(M[r, k]) < EPS:
-                raise ValueError("Matrix is singular or nearly singular.")
-            if r != k:
-                M[[k, r]] = M[[r, k]]
-        else:
-            if abs(M[k, k]) < EPS:
-                raise ValueError("Zero pivot encountered. Try pivot=True.")
+    for i in range(n):
+        for j in range(i+1, n):
+            k = A[j][i] / A[i][i]
+            for m in range(i, n+1):
+                A[j][m] -= k * A[i][m]
 
-        for i in range(k + 1, n):
-            factor = M[i, k] / M[k, k]
-            M[i, k:] -= factor * M[k, k:]
+    x = [0]*n
+    for i in range(n-1, -1, -1):
+        s = sum(A[i][j]*x[j] for j in range(i+1, n))
+        x[i] = (A[i][n] - s) / A[i][i]
 
-    # Back substitution
-    x = np.zeros(n)
-    for i in range(n - 1, -1, -1):
-        if abs(M[i, i]) < EPS:
-            raise ValueError("Matrix is singular or nearly singular.")
-        x[i] = (M[i, -1] - np.dot(M[i, i + 1:n], x[i + 1:n])) / M[i, i]
     return x
 
-def gauss_jordan(A, b, pivot=True):
-    """
-    Gauss-Jordan elimination to reduced row echelon form (RREF).
-    """
-    A, b = as_float_array(A, b)
-    n = A.shape[0]
-    M = np.hstack([A.copy(), b.reshape(-1, 1)])
+#Gauss–Jordan Method
+def gauss_jordan(A, b):
+    n = len(b)
+    A = [A[i] + [b[i]] for i in range(n)]
 
-    row = 0
-    for col in range(n):
-        if row >= n:
-            break
+    for i in range(n):
+        k = A[i][i]
+        for j in range(n+1):
+            A[i][j] /= k
 
-        if pivot:
-            r = row + np.argmax(np.abs(M[row:, col]))
-            if abs(M[r, col]) < EPS:
-                continue
-            if r != row:
-                M[[row, r]] = M[[r, row]]
-        else:
-            if abs(M[row, col]) < EPS:
-                continue
-
-        # Normalize pivot row
-        piv = M[row, col]
-        M[row, :] /= piv
-
-        # Eliminate other rows
         for r in range(n):
-            if r != row:
-                factor = M[r, col]
-                M[r, :] -= factor * M[row, :]
+            if r != i:
+                k = A[r][i]
+                for j in range(n+1):
+                    A[r][j] -= k * A[i][j]
 
-        row += 1
+    return [A[i][-1] for i in range(n)]
 
-    # Check for consistency / uniqueness
-    # If left side is identity (approximately), unique solution:
-    # Otherwise might be infinite/no solutions (not deeply handled here).
-    x = M[:, -1]
-    if np.linalg.matrix_rank(A) < n:
-        raise ValueError("A is rank-deficient: system may have infinite or no solutions.")
-    return x
+#Jacobi Method
+def jacobi(A, b, x):
+    n = len(b)
 
-# -------------------------
-# Iterative methods
-# -------------------------
-def jacobi(A, b, x0=None, tol=1e-10, max_iter=10000):
-    """
-    Jacobi iteration: x^{k+1} = D^{-1} (b - (L+U)x^k)
-    """
-    A, b = as_float_array(A, b)
-    n = A.shape[0]
-    x = np.zeros(n) if x0 is None else np.array(x0, dtype=float).reshape(-1)
-    D = np.diag(A)
-    if np.any(np.abs(D) < EPS):
-        raise ValueError("Zero on diagonal -> Jacobi not applicable.")
+    for _ in range(MAX_ITER):
+        x_new = x[:]
+        for i in range(n):
+            s = sum(A[i][j]*x[j] for j in range(n) if j != i)
+            x_new[i] = (b[i] - s) / A[i][i]
 
-    R = A - np.diagflat(D)
-
-    for it in range(1, max_iter + 1):
-        x_new = (b - R @ x) / D
-        if np.linalg.norm(x_new - x, ord=np.inf) < tol:
-            return x_new, it
+        if max(abs(x_new[i]-x[i]) for i in range(n)) < EPS:
+            return x_new
         x = x_new
 
-    return x, max_iter
+    return x
 
-def gauss_seidel(A, b, x0=None, tol=1e-10, max_iter=10000):
-    """
-    Gauss-Seidel iteration uses newest values immediately.
-    """
-    A, b = as_float_array(A, b)
-    n = A.shape[0]
-    x = np.zeros(n) if x0 is None else np.array(x0, dtype=float).reshape(-1)
+#Gauss–Seidel Method
+def gauss_seidel(A, b, x):
+    n = len(b)
 
-    if np.any(np.abs(np.diag(A)) < EPS):
-        raise ValueError("Zero on diagonal -> Gauss-Seidel not applicable.")
-
-    for it in range(1, max_iter + 1):
-        x_old = x.copy()
+    for _ in range(MAX_ITER):
+        x_ne= x[:]
         for i in range(n):
-            s1 = np.dot(A[i, :i], x[:i])      # new values
-            s2 = np.dot(A[i, i+1:], x_old[i+1:])  # old values
-            x[i] = (b[i] - s1 - s2) / A[i, i]
+            s1 = sum(A[i][j]*x[j] for j in range(i))
+            s2 = sum(A[i][j]*x_old[j] for j in range(i+1, n))
+            x[i] = (b[i] - s1 - s2) / A[i][i]
 
-        if np.linalg.norm(x - x_old, ord=np.inf) < tol:
-            return x, it
+        if max(abs(x[i]-x_old[i]) for i in range(n)) < EPS:
+            return x
 
-    return x, max_iter
+    return x
 
-def relaxation_sor(A, b, omega=1.1, x0=None, tol=1e-10, max_iter=10000):
-    """
-    Successive Over-Relaxation (SOR):
-    x_i^{k+1} = (1-ω)x_i^k + ω * (b_i - sum_{j<i} a_ij x_j^{k+1} - sum_{j>i} a_ij x_j^k) / a_ii
-    ω in (0,2). ω=1 -> Gauss-Seidel.
-    """
-    A, b = as_float_array(A, b)
-    n = A.shape[0]
-    if not (0 < omega < 2):
-        raise ValueError("omega must be in (0, 2).")
-    x = np.zeros(n) if x0 is None else np.array(x0, dtype=float).reshape(-1)
+#Relaxation Method
+def relaxation(A, b, x, w):
+    n = len(b)
 
-    if np.any(np.abs(np.diag(A)) < EPS):
-        raise ValueError("Zero on diagonal -> SOR not applicable.")
-
-    for it in range(1, max_iter + 1):
-        x_old = x.copy()
+    for _ in range(MAX_ITER):
+        x_old = x[:]
         for i in range(n):
-            s1 = np.dot(A[i, :i], x[:i])
-            s2 = np.dot(A[i, i+1:], x_old[i+1:])
-            x_gs = (b[i] - s1 - s2) / A[i, i]     # Gauss-Seidel update
-            x[i] = (1 - omega) * x_old[i] + omega * x_gs
+            s1 = sum(A[i][j]*x[j] for j in range(i))
+            s2 = sum(A[i][j]*x_old[j] for j in range(i+1, n))
+            gs = (b[i] - s1 - s2) / A[i][i]
+            x[i] = (1-w)*x_old[i] + w*gs
 
-        if np.linalg.norm(x - x_old, ord=np.inf) < tol:
-            return x, it
+        if max(abs(x[i]-x_old[i]) for i in range(n)) < EPS:
+            return x
 
-    return x, max_iter
+    return x
 
-if __name__ == "__main__":
-    # Example system:
-    # 10x + 2y + 1z =  7
-    #  1x + 5y + 1z = -8
-    #  2x + 3y + 10z = 6
-    A = [
-        [10, 2, 1],
-        [1, 5, 1],
-        [2, 3, 10],
-    ]
-    b = [7, -8, 6]
+A = [
+    [4, 1, 1],
+    [1, 5, 2],
+    [1, 2, 6]
+]
+b = [7, 10, 14]
 
-    print("A =\n", np.array(A, float))
-    print("b =", np.array(b, float))
+print("Cramer:", cramer(A, b))
+print("Gauss:", gauss(A, b))
+print("Gauss-Jordan:", gauss_jordan(A, b))
 
-    print("\n--- Direct methods ---")
-    x_cr = cramer(A, b)
-    print("Cramer:", x_cr, "residual inf-norm =", residual_norm(np.array(A,float), x_cr, np.array(b,float)))
-
-    x_ge = gaussian_elimination(A, b, pivot=True)
-    print("Gaussian:", x_ge, "residual inf-norm =", residual_norm(np.array(A,float), x_ge, np.array(b,float)))
-
-    x_gj = gauss_jordan(A, b, pivot=True)
-    print("Gauss-Jordan:", x_gj, "residual inf-norm =", residual_norm(np.array(A,float), x_gj, np.array(b,float)))
-
-    print("\n--- Iterative methods ---")
-    x0 = [0, 0, 0]
-    x_j, it_j = jacobi(A, b, x0=x0, tol=1e-10, max_iter=10000)
-    print(f"Jacobi:       {x_j}  iterations={it_j}  residual inf-norm={residual_norm(np.array(A,float), x_j, np.array(b,float))}")
-
-    x_gs, it_gs = gauss_seidel(A, b, x0=x0, tol=1e-10, max_iter=10000)
-    print(f"Gauss-Seidel: {x_gs}  iterations={it_gs}  residual inf-norm={residual_norm(np.array(A,float), x_gs, np.array(b,float))}")
-
-    x_sor, it_sor = relaxation_sor(A, b, omega=1.15, x0=x0, tol=1e-10, max_iter=10000)
-    print(f"SOR(ω=1.15):  {x_sor}  iterations={it_sor}  residual inf-norm={residual_norm(np.array(A,float), x_sor, np.array(b,float))}")
+x0 = [0, 0, 0]
+print("Jacobi:", jacobi(A, b, x0))
+print("Gauss-Seidel:", gauss_seidel(A, b, x0))
+print("Relaxation:", relaxation(A, b, x0, 1.2))
